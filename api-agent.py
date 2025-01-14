@@ -10,6 +10,7 @@ import pytest
 from pathlib import Path
 import json
 import re
+from pprint import pprint
 
 # Define the state that will be passed between nodes
 class AgentState(TypedDict):
@@ -47,33 +48,60 @@ llm = LlamaCpp(
     top_p=1,
     callback_manager=callback_manager,
     verbose=True,
-    n_ctx=4096  # Context window size for Llama 3.2
+    n_ctx=8192  # Context window size for Llama 3.2
 )
 
 def extract_code_sections(response: str) -> tuple[Optional[str], Optional[str]]:
     """Extract Python code from markdown code blocks and separate imports."""
-    # Find content between ```python and ``` markers
-    code_match = re.search(r'```python\s*(.+?)\s*```', response, re.DOTALL)
-    if not code_match:
-        return None, None
+    try:
+        # Find content between any variation of ```python and ``` markers
+        patterns = [
+            r'```python\s*\n(.*?)\s*```',  # Standard format
+            r'```python(.*?)```',           # No newline after python
+            r'```\s*python\s*\n(.*?)\s*```' # Space between ``` and python
+        ]
         
-    full_code = code_match.group(1).strip()
-    
-    # Split imports and main code
-    lines = full_code.split('\n')
-    import_lines = []
-    code_lines = []
-    
-    for line in lines:
-        if line.startswith('from ') or line.startswith('import '):
-            import_lines.append(line)
-        else:
-            code_lines.append(line)
-    
-    imports = '\n'.join(import_lines)
-    code = '\n'.join(code_lines)
-    
-    return imports, code
+        code_block = None
+        for pattern in patterns:
+            match = re.search(pattern, response, re.DOTALL)
+            if match:
+                code_block = match.group(1).strip()
+                break
+        
+        if not code_block:
+            print(f"Failed to extract code block. Response:\n{response}")
+            return None, None
+            
+        # Split imports and main code
+        lines = code_block.split('\n')
+        import_lines = []
+        code_lines = []
+        in_import_section = True  # Assume imports come first
+        
+        for line in lines:
+            line = line.strip()
+            if not line:  # Skip empty lines but maintain import section tracking
+                continue
+            
+            if line.startswith('from ') or line.startswith('import '):
+                import_lines.append(line)
+            else:
+                in_import_section = False
+                code_lines.append(line)
+        
+        imports = '\n'.join(import_lines)
+        code = '\n'.join(code_lines)
+        
+        if not imports and not code:
+            print(f"Extracted empty code sections. Response:\n{response}")
+            return None, None
+            
+        return imports, code
+        
+    except Exception as e:
+        print(f"Error extracting code sections: {str(e)}")
+        print(f"Response:\n{response}")
+        return None, None
 
 def generate_api_code(state: AgentState) -> Command[Literal["generate_tests", "handle_error"]]:
     """Generate API implementation code based on feature description."""
@@ -259,12 +287,11 @@ def create_api_agent() -> StateGraph:
 if __name__ == "__main__":
     agent = create_api_agent()
     
-    
     # Example usage
     for e in agent.stream({
-        "feature_description": "Create an endpoint that returns the current server date in ISO format",
-        "api_file_path": "app/endpoints/date.py",
-        "test_file_path": "tests/test_date.py"
+        "feature_description": "Create an endpoint that returns the current server time in ISO format",
+        "api_file_path": "app/endpoints/time.py",
+        "test_file_path": "tests/test_time.py"
     }):
-        print(e)
-        print("\n")
+        pprint(e)
+        print()
