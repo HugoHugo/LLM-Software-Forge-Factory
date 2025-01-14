@@ -1,15 +1,15 @@
 from typing import TypedDict, Literal, Optional
-from langgraph.graph import StateGraph, START
+from langgraph.graph import StateGraph, START, END
 from langgraph.types import Command
 from langchain_community.llms import LlamaCpp
 from langchain_core.callbacks import CallbackManager, StreamingStdOutCallbackHandler
 from langchain.prompts import PromptTemplate
-from langchain.output_parsers import PydanticOutputParser
-from pydantic import BaseModel, Field
 import ast
 import black
 import pytest
 from pathlib import Path
+import json
+import re
 
 # Define the state that will be passed between nodes
 class AgentState(TypedDict):
@@ -19,29 +19,7 @@ class AgentState(TypedDict):
     api_code: Optional[str]
     test_code: Optional[str]
     error: Optional[str]
-
-# Output schemas for the LLM
-class APIImplementation(BaseModel):
-    code: str = Field(description="The Python code implementing the API feature")
-    imports: str = Field(description="Required import statements")
-    
-class TestImplementation(BaseModel):
-    code: str = Field(description="The Python test code for the API feature")
-    imports: str = Field(description="Required import statements")
-
-# Initialize LlamaCpp with streaming
-callback_manager = CallbackManager([StreamingStdOutCallbackHandler()])
-
-# Initialize LLM
-llm = LlamaCpp(
-    model_path="/path/to/your/gguf/model.gguf",  # Replace with your model path
-    temperature=0.7,
-    max_tokens=2000,
-    top_p=1,
-    callback_manager=callback_manager,
-    verbose=True,
-    n_ctx=4096  # Context window size
-)
+    debug_info: Optional[str]
 
 def validate_python_code(code: str) -> tuple[bool, Optional[str]]:
     """Validate if the generated code is syntactically correct Python."""
@@ -58,141 +36,179 @@ def format_python_code(code: str) -> str:
     except Exception as e:
         return code
 
+# Initialize LlamaCpp with streaming
+callback_manager = CallbackManager([StreamingStdOutCallbackHandler()])
+
+# Initialize LLM
+llm = LlamaCpp(
+    model_path="Hermes-3-Llama-3.2-3B.Q4_K_M.gguf",  # Replace with your model path
+    temperature=0.7,
+    max_tokens=2000,
+    top_p=1,
+    callback_manager=callback_manager,
+    verbose=True,
+    n_ctx=4096  # Context window size for Llama 3.2
+)
+
+def extract_code_sections(response: str) -> tuple[Optional[str], Optional[str]]:
+    """Extract Python code from markdown code blocks and separate imports."""
+    # Find content between ```python and ``` markers
+    code_match = re.search(r'```python\s*(.+?)\s*```', response, re.DOTALL)
+    if not code_match:
+        return None, None
+        
+    full_code = code_match.group(1).strip()
+    
+    # Split imports and main code
+    lines = full_code.split('\n')
+    import_lines = []
+    code_lines = []
+    
+    for line in lines:
+        if line.startswith('from ') or line.startswith('import '):
+            import_lines.append(line)
+        else:
+            code_lines.append(line)
+    
+    imports = '\n'.join(import_lines)
+    code = '\n'.join(code_lines)
+    
+    return imports, code
+
 def generate_api_code(state: AgentState) -> Command[Literal["generate_tests", "handle_error"]]:
     """Generate API implementation code based on feature description."""
-    template = """You are an expert Python developer. Generate a FastAPI implementation for the following feature:
+    system_prompt = """You are an expert Python developer. Generate FastAPI implementation code for the given feature description.
+Provide your response as a Python code block starting with ```python and ending with ```.
+Include all necessary imports at the top of the code.
 
-{feature_description}
+Example format:
+```python
+from fastapi import FastAPI
+from datetime import datetime
 
-The response should contain two sections:
-1. Required imports
-2. Implementation code
+app = FastAPI()
 
-Please format your response as follows:
-IMPORTS:
-<imports>
-FROM fastapi import FastAPI
-...other imports...
-</imports>
+@app.get("/endpoint")
+def endpoint():
+    return {"result": "value"}
+```"""
 
-CODE:
-<code>
-# Your implementation here
-...
-</code>"""
+    user_prompt = f"Generate FastAPI implementation for this feature: {state['feature_description']}"
     
-    prompt = PromptTemplate.from_template(template)
+    complete_prompt = f"<|start_header_id|>system<|end_header_id|>\n{system_prompt}<|eot_id|><|start_header_id|>user<|end_header_id|>\n{user_prompt}<|eot_id|><|start_header_id|>assistant<|end_header_id|>"
     
     try:
-        response = llm.invoke(prompt.format(feature_description=state["feature_description"]))
+        response = llm.invoke(complete_prompt)
+        print("\nAPI Generation Response:", response)  # Debug print
         
-        # Parse the response
-        imports_start = response.find("<imports>") + 9
-        imports_end = response.find("</imports>")
-        code_start = response.find("<code>") + 6
-        code_end = response.find("</code>")
+        imports, code = extract_code_sections(response)
         
-        if any(x == -1 for x in [imports_start, imports_end, code_start, code_end]):
+        if not imports or not code:
             return Command(
-                update={"error": "Failed to parse LLM response - invalid format"},
+                update={
+                    "error": "Failed to extract code sections from response",
+                    "debug_info": response
+                },
                 goto="handle_error"
             )
             
-        imports = response[imports_start:imports_end].strip()
-        code = response[code_start:code_end].strip()
-        
         complete_code = f"{imports}\n\n{code}"
         is_valid, error = validate_python_code(complete_code)
         
         if not is_valid:
             return Command(
-                update={"error": f"Invalid Python code generated: {error}"},
+                update={
+                    "error": f"Invalid Python code generated: {error}",
+                    "debug_info": complete_code
+                },
                 goto="handle_error"
             )
-            
+        
         formatted_code = format_python_code(complete_code)
         
         return Command(
             update={"api_code": formatted_code},
             goto="generate_tests"
         )
-        
+            
     except Exception as e:
         return Command(
-            update={"error": f"Error generating API code: {str(e)}"},
+            update={
+                "error": f"Error generating API code: {str(e)}",
+                "debug_info": response if 'response' in locals() else None
+            },
             goto="handle_error"
         )
 
 def generate_tests(state: AgentState) -> Command[Literal["write_files", "handle_error"]]:
     """Generate test code for the API implementation."""
-    template = """You are an expert in Python testing. Generate pytest tests for the following API implementation.
+    system_prompt = """You are an expert Python testing developer. Generate pytest tests for the given API implementation.
+Provide your response as a Python code block starting with ```python and ending with ```.
+Include all necessary imports at the top of the code.
 
-API Code:
-{api_code}
-
-Feature Description:
-{feature_description}
-
-The response should contain two sections:
-1. Required imports
-2. Test implementation
-
-Please format your response as follows:
-IMPORTS:
-<imports>
+Example format:
+```python
 import pytest
 from fastapi.testclient import TestClient
-...other imports...
-</imports>
+from datetime import datetime
+from main import app
 
-CODE:
-<code>
-# Your test implementation here
-...
-</code>"""
-    
-    prompt = PromptTemplate.from_template(template)
+def test_endpoint():
+    client = TestClient(app)
+    response = client.get("/endpoint")
+    assert response.status_code == 200
+```"""
+
+    user_prompt = f"""Generate pytest tests for this API implementation:
+
+API Code:
+{state['api_code']}
+
+Feature Description:
+{state['feature_description']}"""
+
+    complete_prompt = f"<|start_header_id|>system<|end_header_id|>\n{system_prompt}<|eot_id|><|start_header_id|>user<|end_header_id|>\n{user_prompt}<|eot_id|><|start_header_id|>assistant<|end_header_id|>"
     
     try:
-        response = llm.invoke(prompt.format(
-            api_code=state["api_code"],
-            feature_description=state["feature_description"]
-        ))
+        response = llm.invoke(complete_prompt)
+        print("\nTest Generation Response:", response)  # Debug print
         
-        # Parse the response
-        imports_start = response.find("<imports>") + 9
-        imports_end = response.find("</imports>")
-        code_start = response.find("<code>") + 6
-        code_end = response.find("</code>")
+        imports, code = extract_code_sections(response)
         
-        if any(x == -1 for x in [imports_start, imports_end, code_start, code_end]):
+        if not imports or not code:
             return Command(
-                update={"error": "Failed to parse LLM response - invalid format"},
+                update={
+                    "error": "Failed to extract code sections from response",
+                    "debug_info": response
+                },
                 goto="handle_error"
             )
             
-        imports = response[imports_start:imports_end].strip()
-        code = response[code_start:code_end].strip()
-        
         complete_code = f"{imports}\n\n{code}"
         is_valid, error = validate_python_code(complete_code)
         
         if not is_valid:
             return Command(
-                update={"error": f"Invalid Python test code generated: {error}"},
+                update={
+                    "error": f"Invalid Python test code generated: {error}",
+                    "debug_info": complete_code
+                },
                 goto="handle_error"
             )
-            
+        
         formatted_code = format_python_code(complete_code)
         
         return Command(
             update={"test_code": formatted_code},
             goto="write_files"
         )
-        
+            
     except Exception as e:
         return Command(
-            update={"error": f"Error generating test code: {str(e)}"},
+            update={
+                "error": f"Error generating test code: {str(e)}",
+                "debug_info": response if 'response' in locals() else None
+            },
             goto="handle_error"
         )
 
@@ -218,6 +234,8 @@ def write_files(state: AgentState) -> AgentState:
 def handle_error(state: AgentState) -> AgentState:
     """Handle any errors that occurred during the process."""
     print(f"Error occurred: {state['error']}")
+    if state.get('debug_info'):
+        print(f"\nDebug information:\n{state['debug_info']}")
     return state
 
 # Create the graph
@@ -241,9 +259,12 @@ def create_api_agent() -> StateGraph:
 if __name__ == "__main__":
     agent = create_api_agent()
     
+    
     # Example usage
-    result = agent.invoke({
-        "feature_description": "Create an endpoint that returns the current server time in ISO format",
-        "api_file_path": "app/endpoints/time.py",
-        "test_file_path": "tests/test_time.py"
-    })
+    for e in agent.stream({
+        "feature_description": "Create an endpoint that returns the current server date in ISO format",
+        "api_file_path": "app/endpoints/date.py",
+        "test_file_path": "tests/test_date.py"
+    }):
+        print(e)
+        print("\n")
