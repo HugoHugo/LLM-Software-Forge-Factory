@@ -8,14 +8,15 @@ import black
 from pathlib import Path
 import re
 from pprint import pprint
+import sqlite3
 import os
-
 
 # Define the state that will be passed between nodes
 class AgentState(TypedDict):
     feature_description: str
     api_file_path: str
     test_file_path: str
+    feature_id: int
     api_code: Optional[str]
     test_code: Optional[str]
     error: Optional[str]
@@ -148,7 +149,7 @@ def extract_code_sections(response: str) -> tuple[Optional[str], Optional[str]]:
 
 def generate_api_code(state: AgentState) -> Command[Literal["generate_tests", "handle_error"]]:
     """Generate API implementation code based on feature description."""
-    system_prompt = """You are an expert Python developer building the REST API and back-end for a crypto-currency exchange from scratch. Generate FastAPI implementation code for the given feature description.
+    system_prompt = """You are an expert Python developer. Generate FastAPI implementation code for the given feature description.
 Provide your response as a Python code block starting with ```python and ending with ```.
 Include all necessary imports at the top of the code.
 
@@ -214,7 +215,7 @@ def endpoint():
 
 def generate_tests(state: AgentState) -> Command[Literal["write_files", "handle_error"]]:
     """Generate test code for the API implementation."""
-    system_prompt = """You are an expert Python testing developer testing the REST API and back-end for a crypto-currency exchange. Generate pytest tests for the given API implementation.
+    system_prompt = """You are an expert Python testing developer. Generate pytest tests for the given API implementation.
 Provide your response as a Python code block starting with ```python and ending with ```.
 Include all necessary imports at the top of the code.
 
@@ -343,15 +344,23 @@ def start_agent_graph() -> None:
     # Save to a file
     with open("graph.png", "wb") as f:
         f.write(png_bytes)
-    
-    # Example usage
-    for e in agent.stream({
-        "feature_description": "Create an endpoint that returns the current server time in ISO format",
-        "api_file_path": "app/endpoints/time.py",
-        "test_file_path": "tests/test_time.py"
-    }):
-        pprint(e)
-        print()
+
+    con = sqlite3.connect("sqlite_features_db.sqlite")
+    db_feature_id: int = -1
+    description: str = ""
+    with con:
+        for db_feature_id, description in con.execute(
+            "SELECT id, description FROM feature_prompts WHERE is_implemented=FALSE;"
+        ):
+            if not db_feature_id or not description:
+                raise ValueError("No features left to develop")
+            for e in agent.stream({
+                "feature_description": "Create an endpoint that returns the current server time in ISO format",
+                "api_file_path": "app/endpoints/time.py",
+                "test_file_path": "tests/test_time.py",
+                "feature_id": db_feature_id}):
+                pprint(e)
+                print()
 
 if __name__ == "__main__":
     os.chdir(os.path.expanduser("~/TessarXchange"))
