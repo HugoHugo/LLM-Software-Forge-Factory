@@ -8,6 +8,8 @@ import black
 from pathlib import Path
 import re
 from pprint import pprint
+import os
+
 
 # Define the state that will be passed between nodes
 class AgentState(TypedDict):
@@ -351,6 +353,6 @@ def start_agent_graph() -> None:
         pprint(e)
         print()
 
-# Usage example
 if __name__ == "__main__":
+    os.chdir(os.path.expanduser("~/TessarXchange"))
     start_agent_graph()
