@@ -388,9 +388,9 @@ def setup_logging(log_dir: str = "logs") -> tuple[Path, Path, Path]:
     
     # Create timestamped log files
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    stdout_log = Path(log_dir) / f"lsff_{timestamp}_stdout.log"
-    stderr_log = Path(log_dir) / f"lsff_{timestamp}_stderr.log"
-    debug_log = Path(log_dir) / f"lsff_{timestamp}_debug.log"
+    stdout_log = Path(log_dir) / f"logs/lsff_{timestamp}_stdout.log"
+    stderr_log = Path(log_dir) / f"logs/lsff_{timestamp}_stderr.log"
+    debug_log = Path(log_dir) / f"logs/lsff_{timestamp}_debug.log"
     
     # Configure logging
     logging.basicConfig(
@@ -425,7 +425,8 @@ def setup_logging(log_dir: str = "logs") -> tuple[Path, Path, Path]:
 
 def start_agent_graph() -> None:
     # Setup logging first
-    stdout_log, stderr_log, debug_log = setup_logging()
+    software_forge_base_path: str = os.path.expanduser("~/LLM-Software-Forge-Factory")
+    stdout_log, stderr_log, debug_log = setup_logging(software_forge_base_path)
     logging.info(f"Starting LLM Software Forge Factory")
     logging.info(f"Logs will be saved to:\nSTDOUT: {stdout_log}\nSTDERR: {stderr_log}\nDEBUG: {debug_log}")
     
@@ -436,7 +437,7 @@ def start_agent_graph() -> None:
         # Save graph visualization
         try:
             png_bytes = agent.get_graph().draw_mermaid_png()
-            with open("graph.png", "wb") as f:
+            with open(software_forge_base_path + "/graph.png", "wb") as f:
                 f.write(png_bytes)
             logging.info("Graph visualization saved to graph.png")
         except Exception as e:
