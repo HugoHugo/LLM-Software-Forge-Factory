@@ -345,23 +345,22 @@ def start_agent_graph() -> None:
     with open("graph.png", "wb") as f:
         f.write(png_bytes)
 
-    con = sqlite3.connect("sqlite_features_db.sqlite")
     db_feature_id: int = -1
     description: str = ""
-    with con:
+    with sqlite3.connect("sqlite_features_db.sqlite") as con:
+        os.chdir(os.path.expanduser("~/TessarXchange"))
         for db_feature_id, description in con.execute(
             "SELECT id, description FROM feature_prompts WHERE is_implemented=FALSE;"
         ):
             if not db_feature_id or not description:
                 raise ValueError("No features left to develop")
             for e in agent.stream({
-                "feature_description": "Create an endpoint that returns the current server time in ISO format",
-                "api_file_path": "app/endpoints/time.py",
-                "test_file_path": "tests/test_time.py",
+                "feature_description": description,
+                "api_file_path": "app/endpoints.py",
+                "test_file_path": "tests/test_endpoints.py",
                 "feature_id": db_feature_id}):
                 pprint(e)
                 print()
 
 if __name__ == "__main__":
-    os.chdir(os.path.expanduser("~/TessarXchange"))
     start_agent_graph()
