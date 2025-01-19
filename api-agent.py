@@ -3,15 +3,11 @@ from langgraph.graph import StateGraph, START, END
 from langgraph.types import Command
 from langchain_community.llms import LlamaCpp
 from langchain_core.callbacks import CallbackManager, StreamingStdOutCallbackHandler
-from langchain.prompts import PromptTemplate
 import ast
 import black
-import pytest
 from pathlib import Path
-import json
 import re
 from pprint import pprint
-import autopep8
 
 # Define the state that will be passed between nodes
 class AgentState(TypedDict):
@@ -22,6 +18,10 @@ class AgentState(TypedDict):
     test_code: Optional[str]
     error: Optional[str]
     debug_info: Optional[str]
+
+def append_to_file_using_path(path: Path, content: str):
+    with path.open("a") as f:
+        f.write(content)
 
 def validate_python_code(code: str) -> tuple[bool, Optional[str]]:
     """Validate if the generated code is syntactically correct Python."""
@@ -182,7 +182,7 @@ def endpoint():
             )
             
         complete_code = f"{imports}\n\n{code}"
-        complete_code = autopep8.fix_code(complete_code)
+        complete_code = format_python_code(complete_code)
         is_valid, error = validate_python_code(complete_code)
         
         if not is_valid:
@@ -255,6 +255,7 @@ Feature Description:
             )
             
         complete_code = f"{imports}\n\n{code}"
+        complete_code = format_python_code(complete_code)
         is_valid, error = validate_python_code(complete_code)
         
         if not is_valid:
@@ -293,8 +294,14 @@ def write_files(state: AgentState) -> AgentState:
         test_path.parent.mkdir(parents=True, exist_ok=True)
         
         # Write the files
-        api_path.write_text(state["api_code"])
-        test_path.write_text(state["test_code"])
+        append_to_file_using_path(
+            path=api_path,
+            content=state["api_code"]
+        )
+        append_to_file_using_path(
+            path=test_path,
+            content=state["test_code"]
+        )
         
         return state
         
