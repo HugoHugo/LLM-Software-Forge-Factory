@@ -11,6 +11,8 @@ from pprint import pprint
 import sqlite3
 import os
 
+from time import sleep
+
 # Define the state that will be passed between nodes
 class AgentState(TypedDict):
     feature_description: str
@@ -319,6 +321,39 @@ def handle_error(state: AgentState) -> AgentState:
     
     return start_agent_graph()
 
+def git_operations(state: AgentState):
+    """Commit and push changes to git repository."""
+    try:
+        import subprocess
+        
+        # Create commit message
+        commit_message = f"feat: {state['feature_description']}"
+
+        # Git add
+        subprocess.run(["git", "add", state["api_file_path"], state["test_file_path"]], 
+                      check=True, capture_output=True)
+        
+        # Git commit
+        subprocess.run(["git", "commit", "-m", commit_message], 
+                      check=True, capture_output=True)
+        
+        # Git push
+        subprocess.run(["git", "push", "origin", "main"], 
+                      check=True, capture_output=True)
+        
+        return Command(goto=END)
+        
+    except subprocess.CalledProcessError as e:
+        return Command(
+            update={"error": f"Git operation failed: {e.stderr.decode()}"},
+            goto="handle_error"
+        )
+    except Exception as e:
+        return Command(
+            update={"error": f"Git operation failed: {str(e)}"},
+            goto="handle_error"
+        )
+
 # Create the graph
 def create_api_agent() -> StateGraph:
     workflow = StateGraph(AgentState)
@@ -327,11 +362,13 @@ def create_api_agent() -> StateGraph:
     workflow.add_node("generate_api_code", generate_api_code)
     workflow.add_node("generate_tests", generate_tests)
     workflow.add_node("write_files", write_files)
+    workflow.add_node("git_operations", git_operations)
     workflow.add_node("handle_error", handle_error)
     
     # Add edges
     workflow.add_edge(START, "generate_api_code")
-    workflow.add_edge("write_files", END)
+    workflow.add_edge("write_files", "git_operations")
+    workflow.add_edge("git_operations", END)
     workflow.add_edge("handle_error", END)
     
     return workflow.compile()
@@ -347,7 +384,7 @@ def start_agent_graph() -> None:
 
     db_feature_id: int = -1
     description: str = ""
-    with sqlite3.connect("sqlite_features_db.sqlite") as con:
+    with sqlite3.connect(os.path.expanduser("~/LLM-Software-Forge-Factory/sqlite_features_db.sqlite")) as con:
         os.chdir(os.path.expanduser("~/TessarXchange"))
         for db_feature_id, description in con.execute(
             "SELECT id, description FROM feature_prompts WHERE is_implemented=FALSE;"
@@ -361,6 +398,7 @@ def start_agent_graph() -> None:
                 "feature_id": db_feature_id}):
                 pprint(e)
                 print()
+            sleep(60 * 60) # 1 hour
 
 if __name__ == "__main__":
     start_agent_graph()
