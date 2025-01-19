@@ -109,7 +109,7 @@ LSFF uses LangGraph to create a workflow with the following nodes:
 
 ## License
 
-[Choose appropriate license]
+MIT License
 
 ## Acknowledgments
 
