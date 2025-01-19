@@ -13,6 +13,8 @@ import os
 
 from time import sleep
 
+DB_CONNECTION_PATH = os.path.expanduser("~/LLM-Software-Forge-Factory/sqlite_features_db.sqlite")
+
 # Define the state that will be passed between nodes
 class AgentState(TypedDict):
     feature_description: str
@@ -340,7 +342,11 @@ def git_operations(state: AgentState):
         # Git push
         subprocess.run(["git", "push", "origin", "main"], 
                       check=True, capture_output=True)
-        
+
+        with sqlite3.connect(DB_CONNECTION_PATH) as con:
+            con.execute(
+            f"UPDATE feature_prompts SET is_implemented=TRUE WHERE id = {int(state['feature_id'])};"
+        )
         return Command(goto=END)
         
     except subprocess.CalledProcessError as e:
@@ -384,7 +390,7 @@ def start_agent_graph() -> None:
 
     db_feature_id: int = -1
     description: str = ""
-    with sqlite3.connect(os.path.expanduser("~/LLM-Software-Forge-Factory/sqlite_features_db.sqlite")) as con:
+    with sqlite3.connect(DB_CONNECTION_PATH) as con:
         os.chdir(os.path.expanduser("~/TessarXchange"))
         for db_feature_id, description in con.execute(
             "SELECT id, description FROM feature_prompts WHERE is_implemented=FALSE;"
