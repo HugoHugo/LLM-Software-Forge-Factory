@@ -348,8 +348,10 @@ def git_operations(state: AgentState):
 
         with sqlite3.connect(DB_CONNECTION_PATH) as con:
             con.execute(
-            f"UPDATE feature_prompts SET is_implemented=TRUE WHERE id = {int(state['feature_id'])};"
-        )
+                f"UPDATE feature_prompts SET is_implemented=TRUE WHERE id = {int(state['feature_id'])};"
+            )
+            con.commit()
+        
         return Command(goto=END)
         
     except subprocess.CalledProcessError as e:
