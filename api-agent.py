@@ -146,7 +146,7 @@ def extract_code_sections(response: str) -> tuple[Optional[str], Optional[str]]:
 
 def generate_api_code(state: AgentState) -> Command[Literal["generate_tests", "handle_error"]]:
     """Generate API implementation code based on feature description."""
-    system_prompt = """You are an expert Python developer. Generate FastAPI implementation code for the given feature description.
+    system_prompt = """You are an expert Python developer building the REST API and back-end for a crypto-currency exchange from scratch. Generate FastAPI implementation code for the given feature description.
 Provide your response as a Python code block starting with ```python and ending with ```.
 Include all necessary imports at the top of the code.
 
@@ -212,7 +212,7 @@ def endpoint():
 
 def generate_tests(state: AgentState) -> Command[Literal["write_files", "handle_error"]]:
     """Generate test code for the API implementation."""
-    system_prompt = """You are an expert Python testing developer. Generate pytest tests for the given API implementation.
+    system_prompt = """You are an expert Python testing developer testing the REST API and back-end for a crypto-currency exchange. Generate pytest tests for the given API implementation.
 Provide your response as a Python code block starting with ```python and ending with ```.
 Include all necessary imports at the top of the code.
 
