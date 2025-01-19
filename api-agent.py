@@ -11,6 +11,7 @@ from pathlib import Path
 import json
 import re
 from pprint import pprint
+import autopep8
 
 # Define the state that will be passed between nodes
 class AgentState(TypedDict):
@@ -31,11 +32,51 @@ def validate_python_code(code: str) -> tuple[bool, Optional[str]]:
         return False, str(e)
 
 def format_python_code(code: str) -> str:
-    """Format Python code using black."""
+    """Format Python code using black and fix indentation."""
     try:
-        return black.format_str(code, mode=black.FileMode())
+        # First attempt: basic indent fixing for common patterns
+        lines = code.split('\n')
+        formatted_lines = []
+        indent_level = 0
+        
+        for line in lines:
+            stripped = line.strip()
+            if not stripped:  # Keep empty lines
+                formatted_lines.append('')
+                continue
+                
+            # Decrease indent for lines starting with specific keywords
+            if stripped.startswith(('except', 'else:', 'elif', 'finally:')):
+                indent_level = max(0, indent_level - 1)
+                
+            # Special handling for function/class definitions and their decorators
+            if stripped.startswith('@'):
+                formatted_lines.append('    ' * indent_level + stripped)
+                continue
+                
+            # Add the line with current indent level
+            formatted_lines.append('    ' * indent_level + stripped)
+            
+            # Increase indent after lines ending with ':'
+            if stripped.endswith(':'):
+                indent_level += 1
+            # Decrease indent after 'return' or 'break' statements
+            elif stripped.startswith(('return', 'break', 'continue')):
+                indent_level = max(0, indent_level - 1)
+        
+        # Join lines back together
+        pre_formatted = '\n'.join(formatted_lines)
+        
+        # Then use black for final formatting
+        final_formatted = black.format_str(pre_formatted, mode=black.FileMode())
+        return final_formatted
+        
     except Exception as e:
+        print(f"Warning: Code formatting failed: {str(e)}")
+        print("Falling back to original code:")
+        print(code)
         return code
+
 
 # Initialize LlamaCpp with streaming
 callback_manager = CallbackManager([StreamingStdOutCallbackHandler()])
@@ -141,6 +182,7 @@ def endpoint():
             )
             
         complete_code = f"{imports}\n\n{code}"
+        complete_code = autopep8.fix_code(complete_code)
         is_valid, error = validate_python_code(complete_code)
         
         if not is_valid:
@@ -264,7 +306,8 @@ def handle_error(state: AgentState) -> AgentState:
     print(f"Error occurred: {state['error']}")
     if state.get('debug_info'):
         print(f"\nDebug information:\n{state['debug_info']}")
-    return state
+    
+    return start_agent_graph()
 
 # Create the graph
 def create_api_agent() -> StateGraph:
@@ -283,9 +326,14 @@ def create_api_agent() -> StateGraph:
     
     return workflow.compile()
 
-# Usage example
-if __name__ == "__main__":
+def start_agent_graph() -> None:
     agent = create_api_agent()
+
+    png_bytes = agent.get_graph().draw_mermaid_png()
+    
+    # Save to a file
+    with open("graph.png", "wb") as f:
+        f.write(png_bytes)
     
     # Example usage
     for e in agent.stream({
@@ -295,3 +343,7 @@ if __name__ == "__main__":
     }):
         pprint(e)
         print()
+
+# Usage example
+if __name__ == "__main__":
+    start_agent_graph()
