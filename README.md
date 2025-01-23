@@ -114,7 +114,7 @@ MIT License
 ## Acknowledgments
 
 * LangGraph for the workflow framework
-* Llama for the language model
+* deepseek-r1:7b for the language model
 * FastAPI community for API patterns and best practices
 
 ## Running script

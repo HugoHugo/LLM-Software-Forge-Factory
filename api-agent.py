@@ -12,11 +12,20 @@ from typing import TypedDict, Literal, Optional
 
 from langgraph.graph import StateGraph, START, END
 from langgraph.types import Command
-from langchain_community.llms import LlamaCpp
+from langchain_ollama import ChatOllama
 from langchain_core.callbacks import CallbackManager, StreamingStdOutCallbackHandler
 import black
 
 DB_CONNECTION_PATH = os.path.expanduser("~/LLM-Software-Forge-Factory/sqlite_features_db.sqlite")
+
+llm = ChatOllama(
+    model="deepseek-r1:7b",
+    temperature=0,
+    callbacks=CallbackManager([StreamingStdOutCallbackHandler()]),
+    cache=False,
+    verbose=False
+)
+
 
 # Define the state that will be passed between nodes
 class AgentState(TypedDict):
@@ -87,21 +96,6 @@ def format_python_code(code: str) -> str:
         print(code)
         return code
 
-
-# Initialize LlamaCpp with streaming
-callback_manager = CallbackManager([StreamingStdOutCallbackHandler()])
-
-# Initialize LLM
-llm = LlamaCpp(
-    model_path="Hermes-3-Llama-3.2-3B.Q4_K_M.gguf",  # Replace with your model path
-    temperature=0.7,
-    max_tokens=2000,
-    top_p=1,
-    callback_manager=callback_manager,
-    verbose=True,
-    n_ctx=8192  # Context window size for Llama 3.2
-)
-
 def extract_code_sections(response: str) -> tuple[Optional[str], Optional[str]]:
     """Extract Python code from markdown code blocks and separate imports."""
     try:
@@ -159,6 +153,7 @@ def generate_api_code(state: AgentState) -> Command[Literal["generate_tests", "h
     system_prompt = """You are an expert Python developer. Generate FastAPI implementation code for the given feature description.
 Provide your response as a Python code block starting with ```python and ending with ```.
 Include all necessary imports at the top of the code.
+Don't include calls to start the server, instead focus on the feature implementation.
 
 Example format:
 ```python
@@ -177,7 +172,7 @@ def endpoint():
     complete_prompt = f"<|start_header_id|>system<|end_header_id|>\n{system_prompt}<|eot_id|><|start_header_id|>user<|end_header_id|>\n{user_prompt}<|eot_id|><|start_header_id|>assistant<|end_header_id|>"
     
     try:
-        response = llm.invoke(complete_prompt)
+        response = llm.invoke(complete_prompt).content
         print("\nAPI Generation Response:", response)  # Debug print
         
         imports, code = extract_code_sections(response)
@@ -250,7 +245,7 @@ Feature Description:
     complete_prompt = f"<|start_header_id|>system<|end_header_id|>\n{system_prompt}<|eot_id|><|start_header_id|>user<|end_header_id|>\n{user_prompt}<|eot_id|><|start_header_id|>assistant<|end_header_id|>"
     
     try:
-        response = llm.invoke(complete_prompt)
+        response = llm.invoke(complete_prompt).content
         print("\nTest Generation Response:", response)  # Debug print
         
         imports, code = extract_code_sections(response)
@@ -365,6 +360,39 @@ def git_operations(state: AgentState):
             goto="handle_error"
         )
 
+def format_python_files(state: AgentState) -> Command[Literal["git_operations", "handle_error"]]:
+    """Format Python files using black and sort imports."""
+    try:
+        for filepath in [state["api_file_path"], state["test_file_path"]]:
+            with open(filepath) as f:
+                content = f.read()
+            
+            tree = ast.parse(content)
+            imports, non_imports = [], []
+            seen_imports = set()
+            
+            for node in tree.body:
+                if isinstance(node, (ast.Import, ast.ImportFrom)):
+                    import_str = ast.unparse(node)
+                    if import_str not in seen_imports:
+                        imports.append(import_str)
+                        seen_imports.add(import_str)
+                else:
+                    non_imports.append(ast.unparse(node))
+            
+            formatted = '\n'.join(sorted(imports) + ['', ''] + non_imports)
+            formatted = black.format_str(formatted, mode=black.FileMode())
+            
+            with open(filepath, 'w') as f:
+                f.write(formatted)
+        
+        return Command(goto="git_operations")
+    except Exception as e:
+        return Command(
+            update={"error": f"Error formatting files: {str(e)}"},
+            goto="handle_error"
+        )
+
 # Create the graph
 def create_api_agent() -> StateGraph:
     workflow = StateGraph(AgentState)
@@ -373,12 +401,14 @@ def create_api_agent() -> StateGraph:
     workflow.add_node("generate_api_code", generate_api_code)
     workflow.add_node("generate_tests", generate_tests)
     workflow.add_node("write_files", write_files)
+    workflow.add_node("format_python_files", format_python_files)
     workflow.add_node("git_operations", git_operations)
     workflow.add_node("handle_error", handle_error)
     
     # Add edges
     workflow.add_edge(START, "generate_api_code")
-    workflow.add_edge("write_files", "git_operations")
+    workflow.add_edge("write_files", "format_python_files")
+    workflow.add_edge("format_python_files", "git_operations")
     workflow.add_edge("git_operations", END)
     workflow.add_edge("handle_error", END)
     
@@ -480,7 +510,7 @@ def start_agent_graph() -> None:
                     logging.error(f"Error processing feature ID {db_feature_id}: {e}", exc_info=True)
                 
                 logging.info("Waiting 1 hour before next feature")
-                # sleep(60 * 60)  # 1 hour
+                sleep(60 * 60)  # 1 hour
                 
     except Exception as e:
         logging.error(f"Fatal error in start_agent_graph: {e}", exc_info=True)
