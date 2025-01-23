@@ -479,7 +479,7 @@ def start_agent_graph() -> None:
         description: str = ""
         
         logging.info("Connecting to database and changing to project directory")
-        with sqlite3.connect(DB_CONNECTION_PATH) as con:
+        with sqlite3.connect(DB_CONNECTION_PATH, isolation_level=None) as con:
             os.chdir(os.path.expanduser("~/TessarXchange"))
             logging.info("Fetching unimplemented features from database")
             
