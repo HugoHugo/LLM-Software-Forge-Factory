@@ -477,39 +477,39 @@ def start_agent_graph() -> None:
 
         db_feature_id: int = -1
         description: str = ""
-        
-        logging.info("Connecting to database and changing to project directory")
-        with sqlite3.connect(DB_CONNECTION_PATH, isolation_level=None) as con:
-            db_feature_id, description = con.execute(
-                "SELECT id, description FROM feature_prompts WHERE is_implemented=FALSE LIMIT 1;"
-            ).fetchone()
-        
-        os.chdir(os.path.expanduser("~/TessarXchange"))
-        logging.info("Fetching unimplemented features from database")
-        
-        if not db_feature_id or not description:
-            logging.warning("No features left to develop")
-            raise ValueError("No features left to develop")
-        
-        logging.info(f"Processing feature ID {db_feature_id}: {description}")
-        try:
-            for e in agent.stream({
-                "feature_description": description,
-                "api_file_path": "app/endpoints.py",
-                "test_file_path": "tests/test_endpoints.py",
-                "feature_id": db_feature_id
-            }):
-                pprint(e)
-                print()  # This will be captured in logs due to TeeWriter
-                logging.debug(f"Agent stream output: {e}")
-                
-            logging.info(f"Completed feature ID {db_feature_id}")
+        while True:
+            logging.info("Connecting to database and changing to project directory")
+            with sqlite3.connect(DB_CONNECTION_PATH, isolation_level=None) as con:
+                db_feature_id, description = con.execute(
+                    "SELECT id, description FROM feature_prompts WHERE is_implemented=FALSE LIMIT 1;"
+                ).fetchone()
             
-        except Exception as e:
-            logging.error(f"Error processing feature ID {db_feature_id}: {e}", exc_info=True)
-        
-        logging.info("Waiting 1 hour before next feature")
-        sleep(60 * 60)  # 1 hour
+            os.chdir(os.path.expanduser("~/TessarXchange"))
+            logging.info("Fetching unimplemented features from database")
+            
+            if not db_feature_id or not description:
+                logging.warning("No features left to develop")
+                raise ValueError("No features left to develop")
+            
+            logging.info(f"Processing feature ID {db_feature_id}: {description}")
+            try:
+                for e in agent.stream({
+                    "feature_description": description,
+                    "api_file_path": "app/endpoints.py",
+                    "test_file_path": "tests/test_endpoints.py",
+                    "feature_id": db_feature_id
+                }):
+                    pprint(e)
+                    print()  # This will be captured in logs due to TeeWriter
+                    logging.debug(f"Agent stream output: {e}")
+                    
+                logging.info(f"Completed feature ID {db_feature_id}")
+                
+            except Exception as e:
+                logging.error(f"Error processing feature ID {db_feature_id}: {e}", exc_info=True)
+            
+            logging.info("Waiting 1 hour before next feature")
+            sleep(60 * 60)  # 1 hour
                 
     except Exception as e:
         logging.error(f"Fatal error in start_agent_graph: {e}", exc_info=True)
