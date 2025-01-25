@@ -341,11 +341,10 @@ def git_operations(state: AgentState):
         subprocess.run(["git", "push", "origin", "main"], 
                       check=True, capture_output=True)
 
-        with sqlite3.connect(DB_CONNECTION_PATH) as con:
+        with sqlite3.connect(DB_CONNECTION_PATH, isolation_level=None) as con:
             con.execute(
                 f"UPDATE feature_prompts SET is_implemented=TRUE WHERE id = {int(state['feature_id'])};"
             )
-            con.commit()
         
         return Command(goto=END)
         
