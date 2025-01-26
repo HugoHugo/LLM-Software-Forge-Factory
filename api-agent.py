@@ -20,9 +20,8 @@ DB_CONNECTION_PATH = os.path.expanduser("~/LLM-Software-Forge-Factory/sqlite_fea
 
 llm = ChatOllama(
     model="deepseek-r1:7b",
-    temperature=0,
+    temperature=0.7,
     callbacks=CallbackManager([StreamingStdOutCallbackHandler()]),
-    cache=False,
     verbose=False
 )
 
