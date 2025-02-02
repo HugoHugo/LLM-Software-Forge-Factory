@@ -505,9 +505,6 @@ def start_agent_graph() -> None:
                 
             except Exception as e:
                 logging.error(f"Error processing feature ID {db_feature_id}: {e}", exc_info=True)
-            
-            logging.info("Waiting 1 hour before next feature")
-            sleep(60 * 60)  # 1 hour
                 
     except Exception as e:
         logging.error(f"Fatal error in start_agent_graph: {e}", exc_info=True)
