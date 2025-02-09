@@ -22,7 +22,8 @@ llm = ChatOllama(
     model="deepseek-r1:7b",
     temperature=0.7,
     callbacks=CallbackManager([StreamingStdOutCallbackHandler()]),
-    verbose=False
+    verbose=False,
+    cache=False
 )
 
 
