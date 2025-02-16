@@ -10,6 +10,8 @@ from time import sleep
 from pprint import pprint
 from typing import TypedDict, Literal, Optional
 
+from custom_logging import setup_logging
+
 from langgraph.graph import StateGraph, START, END
 from langgraph.types import Command
 from langchain_ollama import ChatOllama
@@ -413,62 +415,15 @@ def create_api_agent() -> StateGraph:
     
     return workflow.compile()
 
-def setup_logging(log_dir: str = "logs") -> tuple[Path, Path, Path]:
-    # Create logs directory if it doesn't exist
-    Path(log_dir).mkdir(exist_ok=True)
-    
-    # Create timestamped log files
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    stderr_log = Path(log_dir) / f"logs/lsff_{timestamp}_stderr.log"
-    
-    # Configure logging
-    logging.basicConfig(
-        level=logging.DEBUG,
-        format='%(asctime)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.StreamHandler(sys.stdout)
-        ]
-    )
-    
-    # Redirect stdout and stderr while keeping them visible in terminal
-    class TeeWriter:
-        def __init__(self, file, original_stream):
-            self.file = file
-            self.original_stream = original_stream
-
-        def write(self, data):
-            self.file.write(data)
-            self.original_stream.write(data)
-            self.file.flush()
-            self.original_stream.flush()
-
-        def flush(self):
-            self.file.flush()
-            self.original_stream.flush()
-
-    sys.stderr = TeeWriter(open(stderr_log, 'w'), sys.__stderr__)
-    
-    return stderr_log
-
 def start_agent_graph() -> None:
     # Setup logging first
-    software_forge_base_path: str = os.path.expanduser("~/LLM-Software-Forge-Factory")
-    stderr_log = setup_logging(software_forge_base_path)
+    stderr_log = setup_logging()
     logging.info(f"Starting LLM Software Forge Factory")
     logging.info(f"Logs will be saved to:\nSTDERR: {stderr_log}")
     
     try:
         agent = create_api_agent()
         logging.info("Agent created successfully")
-
-        # Save graph visualization
-        try:
-            png_bytes = agent.get_graph().draw_mermaid_png()
-            with open(software_forge_base_path + "/graph.png", "wb") as f:
-                f.write(png_bytes)
-            logging.info("Graph visualization saved to graph.png")
-        except Exception as e:
-            logging.error(f"Failed to save graph visualization: {e}")
 
         db_feature_id: int = -1
         description: str = ""
