@@ -317,11 +317,14 @@ def write_files(state: AgentState) -> AgentState:
 
 def handle_error(state: AgentState) -> AgentState:
     """Handle any errors that occurred during the process."""
-    print(f"Error occurred: {state['error']}")
+    logging.error(f"Agent Error occurred: {state['error']}")
     if state.get('debug_info'):
-        print(f"\nDebug information:\n{state['debug_info']}")
+        logging.error(f"\n Agent Debug information:\n{state['debug_info']}")
     
-    return start_agent_graph()
+    return Command(
+                update={},
+                goto="generate_api_code"
+            )
 
 def git_operations(state: AgentState):
     """Commit and push changes to git repository."""
